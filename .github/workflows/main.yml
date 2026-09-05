@@ -21,6 +21,9 @@ jobs:
           node-version: '22.16.0'
           cache: npm
 
+      - name: Restore shell permissions
+        run: chmod +x scripts/*.sh
+
       - name: Install locked dependencies
         run: npm run install:ci
 
