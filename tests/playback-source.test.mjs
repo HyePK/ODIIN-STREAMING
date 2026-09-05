@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
 const appSource = await readFile(new URL("../app/odiin-app.tsx", import.meta.url), "utf8");
 const cssSource = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -38,7 +36,7 @@ test("ODIIN direct player exposes required playback controls", () => {
 test("Play now and card selections route through the autoplay/fullscreen path", () => {
   assert.match(appSource, /> Play now<\/Button>/);
   assert.match(appSource, /requestOdiinFullscreen\(\)/);
-  assert.match(appSource, /setPlayRequest\(\(current\) => current \+ 1\)/);
+  assert.match(appSource, /setPlayRequest\(\(value\) => value \+ 1\)/);
   assert.match(appSource, /video\.play\(\)/);
   assert.match(appSource, /streamUrl \? \(/);
   assert.match(appSource, /<OdiinVideo src=\{streamUrl\}/);
