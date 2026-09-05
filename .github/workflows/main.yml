@@ -42,6 +42,21 @@ jobs:
             echo "ODIIN source migration is already applied or no longer required."
           fi
 
+      - name: Add HLS playback support and harden controls
+        if: github.event_name != 'pull_request'
+        run: |
+          if git apply --check .github/odiin-hls-controls.patch; then
+            git apply .github/odiin-hls-controls.patch
+            npm install hls.js@1.7.2 --save
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/odiin-app.tsx package.json package-lock.json
+            git commit -m "Add cross-browser HLS playback and five-second controls"
+            git push origin HEAD:main
+          else
+            echo "ODIIN HLS/control hardening is already applied or no longer required."
+          fi
+
       - name: Install locked dependencies
         run: npm run install:ci
 
