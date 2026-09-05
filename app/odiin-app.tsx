@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Hls from "hls.js";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Airplay, CalendarDays, ChevronRight, CircleUserRound, Clock3, Film,
@@ -108,6 +109,7 @@ function requestOdiinFullscreen() {
 
 function OdiinVideo({ src, poster, playRequest }: { src: string; poster?: string; playRequest: number }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [playing, setPlaying] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -116,16 +118,43 @@ function OdiinVideo({ src, poster, playRequest }: { src: string; poster?: string
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
 
-  function showControls() {
+  function showControls(autoHide = playing) {
     setControlsVisible(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    if (playing) hideTimer.current = setTimeout(() => setControlsVisible(false), 5000);
+    if (autoHide) hideTimer.current = setTimeout(() => setControlsVisible(false), 5000);
   }
   useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
   useEffect(() => {
     const video = ref.current;
+    if (!video) return;
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    const isHls = /\.m3u8(?:$|[?#])/i.test(src);
+    const nativeManagedHls = Boolean(video.canPlayType("application/vnd.apple.mpegurl")) && "ManagedMediaSource" in window;
+    if (isHls && !nativeManagedHls && Hls.isSupported()) {
+      const hls = new Hls();
+      hlsRef.current = hls;
+      hls.loadSource(src);
+      hls.attachMedia(video);
+    } else {
+      video.src = src;
+    }
+    return () => {
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [src]);
+  useEffect(() => {
+    const video = ref.current;
     if (!video || playRequest <= 0) return;
-    const start = () => { video.play().catch(() => { video.muted = true; setMuted(true); video.play().catch(() => undefined); }); showControls(); };
+    const start = () => {
+      video.play().then(() => showControls(true)).catch(() => {
+        video.muted = true; setMuted(true);
+        video.play().then(() => showControls(true)).catch(() => undefined);
+      });
+    };
     if (video.readyState >= 2) start(); else video.addEventListener("canplay", start, { once: true });
     return () => video.removeEventListener("canplay", start);
   }, [src, playRequest]);
@@ -139,7 +168,7 @@ function OdiinVideo({ src, poster, playRequest }: { src: string; poster?: string
   function fullscreen() { requestOdiinFullscreen(); showControls(); }
 
   return <div className="odiin-video" data-odiin-player onMouseMove={showControls} onTouchStart={showControls} onClick={showControls}>
-    <video ref={ref} className="player-media" playsInline poster={poster} src={src} preload="metadata" onPlay={() => { setPlaying(true); showControls(); }} onPause={() => { setPlaying(false); setControlsVisible(true); if (hideTimer.current) clearTimeout(hideTimer.current); }} onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)} onLoadedMetadata={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)} onDurationChange={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)} onVolumeChange={(e) => { setVolume(e.currentTarget.volume); setMuted(e.currentTarget.muted); }} />
+    <video ref={ref} className="player-media" playsInline poster={poster} preload="metadata" onPlay={() => { setPlaying(true); showControls(true); }} onPause={() => { setPlaying(false); setControlsVisible(true); if (hideTimer.current) clearTimeout(hideTimer.current); }} onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)} onLoadedMetadata={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)} onDurationChange={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)} onVolumeChange={(e) => { setVolume(e.currentTarget.volume); setMuted(e.currentTarget.muted); }} />
     <div className={`video-controls ${controlsVisible ? "is-visible" : "is-hidden"}`} onClick={(e) => e.stopPropagation()}>
       <div className="video-progress-row"><span>{formatPlaybackTime(currentTime)}</span><input aria-label="Seek video" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} disabled={!duration} onChange={(e) => seek(Number(e.target.value))} /><span>{formatPlaybackTime(duration)}</span></div>
       <div className="video-control-row">
