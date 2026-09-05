@@ -1,0 +1,1 @@
+ALTER TABLE `events` ADD `home_row` text DEFAULT 'show-series' NOT NULL;

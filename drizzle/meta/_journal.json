@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788454194406,
+      "tag": "0000_famous_sprite",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788455909890,
+      "tag": "0001_cultured_red_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788456525918,
+      "tag": "0002_giant_skullbuster",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788478298069,
+      "tag": "0003_rare_enchantress",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788485065091,
+      "tag": "0004_opposite_maria_hill",
+      "breakpoints": true
+    }
+  ]
+}
