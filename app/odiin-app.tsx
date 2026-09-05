@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Airplay, CalendarDays, ChevronRight, CircleUserRound, Clock3, Film,
   Gauge, Library, ListVideo, LoaderCircle, Menu, Play, Plus, Radio,
   Search, Settings2, ShieldCheck, Smartphone, Sparkles, Trash2, X,
   LockKeyhole, Mail, UserRound, UploadCloud, RadioTower, Square,
-  Heart, Share2, RotateCcw, Pause,
+  Heart, Share2, RotateCcw, Pause, FastForward, Volume2, VolumeX, Maximize,
   Tv2, KeyRound,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -69,10 +70,10 @@ function formatDate(value: string, compact = false) {
 
 function Brand() {
   return (
-    <a href="/" className="brand" aria-label="ODIIN STREAMING home">
+    <Link href="/" className="brand" aria-label="ODIIN STREAMING home">
       <span className="brand-mark"><span /></span>
       <span className="brand-copy"><b>ODIIN</b><small>STREAMING</small></span>
-    </a>
+    </Link>
   );
 }
 
@@ -86,21 +87,81 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function OdiinVideo({ src, poster }: { src: string; poster?: string }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-  function toggle() { const video = ref.current; if (!video) return; if (video.paused) video.play(); else video.pause(); }
-  function rewind() { if (ref.current) ref.current.currentTime = Math.max(0, ref.current.currentTime - 10); }
-  function stop() { if (!ref.current) return; ref.current.pause(); ref.current.currentTime = 0; }
-  return <div className="odiin-video"><video ref={ref} className="player-media" playsInline poster={poster} src={src} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} /><div className="video-controls"><button onClick={rewind} aria-label="Rewind 10 seconds"><RotateCcw /> <span>10</span></button><button className="main-video-control" onClick={toggle} aria-label={playing ? "Pause" : "Play"}>{playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</button><button onClick={stop} aria-label="Stop"><Square fill="currentColor" /></button></div></div>;
+function formatPlaybackTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}` : `${minutes}:${String(secs).padStart(2, "0")}`;
 }
 
-function Player({ event }: { event: EventItem }) {
+function requestOdiinFullscreen() {
+  const shell = document.querySelector<HTMLElement>("[data-odiin-player]");
+  const video = shell?.querySelector("video") as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+  try {
+    if (shell?.requestFullscreen) return shell.requestFullscreen().catch(() => undefined);
+    if (video?.webkitEnterFullscreen) { video.webkitEnterFullscreen(); return; }
+    if (document.documentElement.requestFullscreen) return document.documentElement.requestFullscreen().catch(() => undefined);
+  } catch { return; }
+}
+
+function OdiinVideo({ src, poster, playRequest }: { src: string; poster?: string; playRequest: number }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+
+  function showControls() {
+    setControlsVisible(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    if (playing) hideTimer.current = setTimeout(() => setControlsVisible(false), 5000);
+  }
+  useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
+  useEffect(() => {
+    const video = ref.current;
+    if (!video || playRequest <= 0) return;
+    const start = () => { video.play().catch(() => { video.muted = true; setMuted(true); video.play().catch(() => undefined); }); showControls(); };
+    if (video.readyState >= 2) start(); else video.addEventListener("canplay", start, { once: true });
+    return () => video.removeEventListener("canplay", start);
+  }, [src, playRequest]);
+
+  function toggle() { const video = ref.current; if (!video) return; showControls(); if (video.paused) video.play().catch(() => undefined); else video.pause(); }
+  function rewind() { const video = ref.current; if (!video) return; video.currentTime = Math.max(0, video.currentTime - 10); showControls(); }
+  function forward() { const video = ref.current; if (!video) return; video.currentTime = Math.min(Number.isFinite(video.duration) ? video.duration : video.currentTime + 10, video.currentTime + 10); showControls(); }
+  function seek(value: number) { const video = ref.current; if (!video || !Number.isFinite(video.duration)) return; video.currentTime = value; setCurrentTime(value); showControls(); }
+  function changeVolume(value: number) { const video = ref.current; if (!video) return; video.volume = value; video.muted = value === 0; setVolume(value); setMuted(value === 0); showControls(); }
+  function toggleMute() { const video = ref.current; if (!video) return; video.muted = !video.muted; setMuted(video.muted); showControls(); }
+  function fullscreen() { requestOdiinFullscreen(); showControls(); }
+
+  return <div className="odiin-video" data-odiin-player onMouseMove={showControls} onTouchStart={showControls} onClick={showControls}>
+    <video ref={ref} className="player-media" playsInline poster={poster} src={src} preload="metadata" onPlay={() => { setPlaying(true); showControls(); }} onPause={() => { setPlaying(false); setControlsVisible(true); if (hideTimer.current) clearTimeout(hideTimer.current); }} onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)} onLoadedMetadata={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)} onDurationChange={(e) => setDuration(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration : 0)} onVolumeChange={(e) => { setVolume(e.currentTarget.volume); setMuted(e.currentTarget.muted); }} />
+    <div className={`video-controls ${controlsVisible ? "is-visible" : "is-hidden"}`} onClick={(e) => e.stopPropagation()}>
+      <div className="video-progress-row"><span>{formatPlaybackTime(currentTime)}</span><input aria-label="Seek video" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(currentTime, duration || 0)} disabled={!duration} onChange={(e) => seek(Number(e.target.value))} /><span>{formatPlaybackTime(duration)}</span></div>
+      <div className="video-control-row">
+        <button className="main-video-control" onClick={toggle} aria-label={playing ? "Pause" : "Play"}>{playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</button>
+        <button onClick={rewind} aria-label="Rewind 10 seconds"><RotateCcw /><span>10</span></button>
+        <button onClick={forward} aria-label="Forward 10 seconds"><FastForward /><span>10</span></button>
+        <div className="video-volume"><button onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}>{muted || volume === 0 ? <VolumeX /> : <Volume2 />}</button><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={(e) => changeVolume(Number(e.target.value))} /></div>
+        <button className="fullscreen-control" onClick={fullscreen} aria-label="Full screen"><Maximize /></button>
+      </div>
+    </div>
+  </div>;
+}
+
+function Player({ event, playRequest }: { event: EventItem; playRequest: number }) {
   const [gateForm, setGateForm] = useState({ code: "", name: "", email: "" });
   const [gateError, setGateError] = useState("");
   const [unlocking, setUnlocking] = useState(false);
   const [unlocked, setUnlocked] = useState<{ streamUrl: string; providerBroadcastId: string } | null>(null);
-  useEffect(() => { setUnlocked(null); setGateError(""); setGateForm({ code: "", name: "", email: "" }); }, [event.id]);
+  useEffect(() => {
+    const resetGate = window.setTimeout(() => { setUnlocked(null); setGateError(""); setGateForm({ code: "", name: "", email: "" }); }, 0);
+    return () => window.clearTimeout(resetGate);
+  }, [event.id]);
 
   const gated = event.gateType && event.gateType !== "none" && !unlocked;
   const streamUrl = unlocked?.streamUrl ?? event.streamUrl;
@@ -134,10 +195,10 @@ function Player({ event }: { event: EventItem }) {
           {gateError && <span className="gate-error">{gateError}</span>}
           <Button className="primary-action" disabled={unlocking}>{unlocking ? <LoaderCircle className="spin" /> : <Play fill="currentColor" />} Continue to broadcast</Button>
         </form>
+      ) : streamUrl ? (
+        <OdiinVideo src={streamUrl} poster={event.posterUrl || undefined} playRequest={playRequest} />
       ) : embedUrl ? (
         <iframe className="player-media" src={embedUrl} allow="autoplay; fullscreen; picture-in-picture" allowFullScreen title={event.title} />
-      ) : streamUrl ? (
-        <OdiinVideo src={streamUrl} poster={event.posterUrl || undefined} />
       ) : (
         <div className="player-standby" style={event.posterUrl ? { backgroundImage: `linear-gradient(180deg,rgba(3,7,17,.1),rgba(3,7,17,.84)),url(${event.posterUrl})` } : undefined}>
           <div className="signal-rings"><span /><span /><span /></div>
@@ -192,8 +253,8 @@ function HomeRail({ title, eyebrow, events, onSelect }: { title: string; eyebrow
   return <section className="content-section home-row"><div className="section-heading"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div><span>{events.length} {events.length === 1 ? "title" : "titles"}</span></div>{events.length ? <div className="home-rail">{events.map((event, index) => <EventCard key={event.id} event={event} index={index} onSelect={onSelect} />)}</div> : <div className="home-row-empty"><RadioTower /><span>{title === "LIVE NOW" ? "No channel is live right now." : "New content will appear here when it is placed in this row."}</span></div>}</section>;
 }
 
-function WatchView({ events, selected, setSelected, setView, saved, onSave, onShare }: {
-  events: EventItem[]; selected: EventItem; setSelected: (item: EventItem) => void; setView: (view: View) => void;
+function WatchView({ events, selected, onPlay, playRequest, setView, saved, onSave, onShare }: {
+  events: EventItem[]; selected: EventItem; onPlay: (item: EventItem) => void; playRequest: number; setView: (view: View) => void;
   saved: boolean; onSave: () => void; onShare: () => void;
 }) {
   if (!events.length) {
@@ -202,7 +263,7 @@ function WatchView({ events, selected, setSelected, setView, saved, onSave, onSh
   return (
     <>
       <section className="hero-grid">
-        <Player event={selected} />
+        <Player event={selected} playRequest={playRequest} />
         <div className="now-card">
           <p className="eyebrow"><Radio size={15} /> Featured broadcast</p>
           <StatusBadge status={selected.status} />
@@ -211,7 +272,7 @@ function WatchView({ events, selected, setSelected, setView, saved, onSave, onSh
           <div className="time-row"><CalendarDays size={17} /><span>{formatDate(selected.startsAt)}</span></div>
           <div className="time-row"><Clock3 size={17} /><span>{selected.durationMinutes} minutes</span></div>
           <div className="hero-actions">
-            <Button className="primary-action"><Play size={17} fill="currentColor" /> Watch now</Button>
+            <Button className="primary-action" onClick={() => onPlay(selected)}><Play size={17} fill="currentColor" /> Play now</Button>
             <Button variant="outline" className={`secondary-action ${saved ? "saved-action" : ""}`} onClick={onSave}><Heart size={17} fill={saved ? "currentColor" : "none"} /> {saved ? "Saved" : "Save"}</Button>
             <Button variant="outline" className="secondary-action share-action" onClick={onShare}><Share2 size={17} /> Share</Button>
             <Button variant="outline" className="secondary-action" onClick={() => setView("schedule")}>Full schedule</Button>
@@ -219,7 +280,7 @@ function WatchView({ events, selected, setSelected, setView, saved, onSave, onSh
         </div>
       </section>
 
-      {HOME_ROWS.map((row) => <HomeRail key={row.key} title={row.title} eyebrow={row.eyebrow} events={events.filter((event) => row.key === "live-now" ? event.status === "live" : event.status !== "live" && event.homeRow === row.key)} onSelect={setSelected} />)}
+      {HOME_ROWS.map((row) => <HomeRail key={row.key} title={row.title} eyebrow={row.eyebrow} events={events.filter((event) => row.key === "live-now" ? event.status === "live" : event.status !== "live" && event.homeRow === row.key)} onSelect={onPlay} />)}
     </>
   );
 }
@@ -285,11 +346,11 @@ function AdminView({ events, reload }: { events: EventItem[]; reload: () => Prom
   const [managedAccount, setManagedAccount] = useState<CreatorAccount | null>(null);
   async function loadAccounts() { const response = await fetch("/api/account?admin=1"); const data = await response.json() as { accounts?: CreatorAccount[] }; setAccounts(data.accounts ?? []); }
   useEffect(() => {
-    loadAccounts().catch(() => undefined);
+    const initialLoad = window.setTimeout(() => { void loadAccounts().catch(() => undefined); }, 0);
     const refresh = window.setInterval(() => loadAccounts().catch(() => undefined), 15000);
     const onFocus = () => loadAccounts().catch(() => undefined);
     window.addEventListener("focus", onFocus);
-    return () => { window.clearInterval(refresh); window.removeEventListener("focus", onFocus); };
+    return () => { window.clearTimeout(initialLoad); window.clearInterval(refresh); window.removeEventListener("focus", onFocus); };
   }, []);
 
   async function saveCreatorAccount(account: CreatorAccount) {
@@ -412,7 +473,7 @@ function AdminView({ events, reload }: { events: EventItem[]; reload: () => Prom
 function CreatorAccountEditor({ account, busy, onClose, onSave, onDeleteChannel, onDeleteSubscriber }: { account: CreatorAccount; busy: boolean; onClose: () => void; onSave: (account: CreatorAccount) => void; onDeleteChannel: () => void; onDeleteSubscriber: () => void }) {
   const [value, setValue] = useState(account);
   const ownerAccount = value.email.toLowerCase() === "ots.ent.g@gmail.com";
-  return <div className="modal-backdrop" role="presentation"><form className="event-editor creator-editor" onSubmit={(event) => { event.preventDefault(); onSave(value); }}><div className="editor-head"><div><p className="eyebrow">Subscriber controls</p><h2>{value.displayName}</h2><span>{value.email}</span></div><button type="button" onClick={onClose}><X /></button></div><div className="creator-toggle"><span><b>Paid creator access</b><small>Allows this subscriber to open Creator Studio and distribute live content.</small></span><Switch checked={value.creatorAccess && value.subscriptionStatus === "active"} onCheckedChange={(checked) => setValue({ ...value, creatorAccess: checked, subscriptionStatus: checked ? "active" : "inactive", subscriptionPlan: checked ? (value.subscriptionPlan === "viewer" ? "creator" : value.subscriptionPlan) : value.subscriptionPlan })} /></div><div className="creator-toggle"><span><b>Channel page</b><small>Restrict this creator's public page and prevent Studio access.</small></span><Switch checked={value.channelStatus !== "restricted"} onCheckedChange={(checked) => setValue({ ...value, channelStatus: checked ? "active" : "restricted" })} /></div><label>Subscription plan<Input value={value.subscriptionPlan} onChange={(e) => setValue({ ...value, subscriptionPlan: e.target.value })} placeholder="Creator" /></label><div className="form-grid"><label>Channel name<Input value={value.channelName} onChange={(e) => setValue({ ...value, channelName: e.target.value })} placeholder={value.displayName} /></label><label>Channel address<Input value={value.channelSlug} onChange={(e) => setValue({ ...value, channelSlug: e.target.value })} placeholder="creator-channel" /></label></div><label>Channel description<Textarea value={value.channelDescription} onChange={(e) => setValue({ ...value, channelDescription: e.target.value })} placeholder="Describe this creator channel" /></label><label>Live publishing endpoint<Input value={value.whipEndpoint} onChange={(e) => setValue({ ...value, whipEndpoint: e.target.value })} placeholder="https://…/whip" /></label><label>Publishing token<Input type="password" value={value.whipToken} onChange={(e) => setValue({ ...value, whipToken: e.target.value })} placeholder="Secure publishing token" /></label><label>Viewer playback URL<Input value={value.playbackUrl} onChange={(e) => setValue({ ...value, playbackUrl: e.target.value })} placeholder="https://…/live.m3u8" /></label>{value.channelSlug && <a className="creator-page-link" href={`/channel/${value.channelSlug}`} target="_blank" rel="noreferrer">Open creator page</a>}<div className="creator-danger-zone"><span><b>Channel actions</b><small>These actions remove creator content. The owner test account is protected.</small></span>{!ownerAccount && <div><AlertDialog><AlertDialogTrigger asChild><Button type="button" variant="outline">Delete channel</Button></AlertDialogTrigger><AlertDialogContent className="delete-dialog"><AlertDialogHeader><AlertDialogTitle>Delete this creator channel?</AlertDialogTitle><AlertDialogDescription>All broadcasts owned by this creator will be deleted and paid access will be revoked.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction className="confirm-delete" onClick={onDeleteChannel}>Delete channel</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog><AlertDialog><AlertDialogTrigger asChild><Button type="button" variant="outline">Delete subscriber</Button></AlertDialogTrigger><AlertDialogContent className="delete-dialog"><AlertDialogHeader><AlertDialogTitle>Delete this subscriber?</AlertDialogTitle><AlertDialogDescription>The account, saved library, creator page, and creator-owned broadcasts will be permanently deleted.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction className="confirm-delete" onClick={onDeleteSubscriber}>Delete subscriber</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div>}</div><div className="editor-actions"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />} Save subscriber controls</Button></div></form></div>;
+  return <div className="modal-backdrop" role="presentation"><form className="event-editor creator-editor" onSubmit={(event) => { event.preventDefault(); onSave(value); }}><div className="editor-head"><div><p className="eyebrow">Subscriber controls</p><h2>{value.displayName}</h2><span>{value.email}</span></div><button type="button" onClick={onClose}><X /></button></div><div className="creator-toggle"><span><b>Paid creator access</b><small>Allows this subscriber to open Creator Studio and distribute live content.</small></span><Switch checked={value.creatorAccess && value.subscriptionStatus === "active"} onCheckedChange={(checked) => setValue({ ...value, creatorAccess: checked, subscriptionStatus: checked ? "active" : "inactive", subscriptionPlan: checked ? (value.subscriptionPlan === "viewer" ? "creator" : value.subscriptionPlan) : value.subscriptionPlan })} /></div><div className="creator-toggle"><span><b>Channel page</b><small>Restrict this creator&apos;s public page and prevent Studio access.</small></span><Switch checked={value.channelStatus !== "restricted"} onCheckedChange={(checked) => setValue({ ...value, channelStatus: checked ? "active" : "restricted" })} /></div><label>Subscription plan<Input value={value.subscriptionPlan} onChange={(e) => setValue({ ...value, subscriptionPlan: e.target.value })} placeholder="Creator" /></label><div className="form-grid"><label>Channel name<Input value={value.channelName} onChange={(e) => setValue({ ...value, channelName: e.target.value })} placeholder={value.displayName} /></label><label>Channel address<Input value={value.channelSlug} onChange={(e) => setValue({ ...value, channelSlug: e.target.value })} placeholder="creator-channel" /></label></div><label>Channel description<Textarea value={value.channelDescription} onChange={(e) => setValue({ ...value, channelDescription: e.target.value })} placeholder="Describe this creator channel" /></label><label>Live publishing endpoint<Input value={value.whipEndpoint} onChange={(e) => setValue({ ...value, whipEndpoint: e.target.value })} placeholder="https://…/whip" /></label><label>Publishing token<Input type="password" value={value.whipToken} onChange={(e) => setValue({ ...value, whipToken: e.target.value })} placeholder="Secure publishing token" /></label><label>Viewer playback URL<Input value={value.playbackUrl} onChange={(e) => setValue({ ...value, playbackUrl: e.target.value })} placeholder="https://…/live.m3u8" /></label>{value.channelSlug && <Link className="creator-page-link" href={`/channel/${value.channelSlug}`} target="_blank" rel="noreferrer">Open creator page</Link>}<div className="creator-danger-zone"><span><b>Channel actions</b><small>These actions remove creator content. The owner test account is protected.</small></span>{!ownerAccount && <div><AlertDialog><AlertDialogTrigger asChild><Button type="button" variant="outline">Delete channel</Button></AlertDialogTrigger><AlertDialogContent className="delete-dialog"><AlertDialogHeader><AlertDialogTitle>Delete this creator channel?</AlertDialogTitle><AlertDialogDescription>All broadcasts owned by this creator will be deleted and paid access will be revoked.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction className="confirm-delete" onClick={onDeleteChannel}>Delete channel</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog><AlertDialog><AlertDialogTrigger asChild><Button type="button" variant="outline">Delete subscriber</Button></AlertDialogTrigger><AlertDialogContent className="delete-dialog"><AlertDialogHeader><AlertDialogTitle>Delete this subscriber?</AlertDialogTitle><AlertDialogDescription>The account, saved library, creator page, and creator-owned broadcasts will be permanently deleted.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction className="confirm-delete" onClick={onDeleteSubscriber}>Delete subscriber</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div>}</div><div className="editor-actions"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button className="primary-action" disabled={busy}>{busy && <LoaderCircle className="spin" />} Save subscriber controls</Button></div></form></div>;
 }
 
 function EventEditor({ item, busy, onClose, onSave }: { item: EventItem; busy: boolean; onClose: () => void; onSave: (event: EventItem, video: File | null) => void }) {
@@ -449,6 +510,7 @@ export function OdiinApp({ initialView = "watch", initialEventId, accountEmail =
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [playRequest, setPlayRequest] = useState(0);
 
   async function loadEvents() {
     try {
@@ -459,14 +521,20 @@ export function OdiinApp({ initialView = "watch", initialEventId, accountEmail =
     } catch { setEvents([]); setSelected(EMPTY_EVENT); }
     finally { setLoading(false); }
   }
-  useEffect(() => { loadEvents(); }, []);
+  useEffect(() => { const initialLoad = window.setTimeout(() => { void loadEvents(); }, 0); return () => window.clearTimeout(initialLoad); }, []);
   useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(() => undefined); }, []);
   useEffect(() => { if (accountEmail) fetch("/api/account").then((response) => response.json()).then((data) => setSavedIds(data.savedEventIds ?? [])).catch(() => undefined); }, [accountEmail]);
 
   const adminMode = initialView === "admin";
   const visibleNav = adminMode ? [{ id: "admin" as const, label: "Dashboard", icon: Gauge }] : nav.filter((item) => item.id !== "admin");
   const title = useMemo(() => visibleNav.find((item) => item.id === view)?.label ?? "Watch", [view, adminMode]);
-  function openEvent(event: EventItem) { setSelected(event); setView("watch"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function openEvent(event: EventItem) {
+    requestOdiinFullscreen();
+    setSelected(event);
+    setPlayRequest((value) => value + 1);
+    setView("watch");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   async function toggleSaved() {
     if (!accountEmail) { window.location.href = "/account"; return; }
     const saved = savedIds.includes(selected.id);
@@ -483,10 +551,10 @@ export function OdiinApp({ initialView = "watch", initialEventId, accountEmail =
 
   return (
     <div className="app-shell">
-      <header className="site-header"><div className="header-inner"><Brand /><nav className={menuOpen ? "nav-open" : ""} aria-label="Primary">{visibleNav.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMenuOpen(false); }}><item.icon size={17} />{item.label}</button>)}{!adminMode && <><a href="/channels"><Tv2 size={17} />Channels</a><a href="/admin-access"><KeyRound size={17} />Admin</a></>}{adminMode && <a className="view-site-link" href="/">View public site</a>}</nav><div className="header-actions"><span className="live-chip"><span /> Network ready</span><a className="profile-button" aria-label="ODIIN account" href="/account"><CircleUserRound /></a><button className="menu-button" aria-label="Menu" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button></div></div></header>
+      <header className="site-header"><div className="header-inner"><Brand /><nav className={menuOpen ? "nav-open" : ""} aria-label="Primary">{visibleNav.map((item) => <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); setMenuOpen(false); }}><item.icon size={17} />{item.label}</button>)}{!adminMode && <><Link href="/channels"><Tv2 size={17} />Channels</Link><Link href="/admin-access"><KeyRound size={17} />Admin</Link></>}{adminMode && <Link className="view-site-link" href="/">View public site</Link>}</nav><div className="header-actions"><span className="live-chip"><span /> Network ready</span><Link className="profile-button" aria-label="ODIIN account" href="/account"><CircleUserRound /></Link><button className="menu-button" aria-label="Menu" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button></div></div></header>
       <main className="main-content" aria-label={title}>
         {loading && <div className="loading-line" />}
-        {view === "watch" && <WatchView events={events} selected={selected} setSelected={setSelected} setView={setView} saved={savedIds.includes(selected.id)} onSave={toggleSaved} onShare={shareSelected} />}
+        {view === "watch" && <WatchView events={events} selected={selected} onPlay={openEvent} playRequest={playRequest} setView={setView} saved={savedIds.includes(selected.id)} onSave={toggleSaved} onShare={shareSelected} />}
         {view === "schedule" && <ScheduleView events={events} onSelect={openEvent} />}
         {view === "library" && <LibraryView events={events} onSelect={openEvent} savedIds={savedIds} accountEmail={accountEmail} />}
         {view === "admin" && <AdminView events={events} reload={loadEvents} />}
