@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type Channel = { displayName: string; channelName: string; channelDescription: string };
@@ -16,11 +17,11 @@ export function ChannelPageClient({ slug }: { slug: string }) {
       setChannel(data.channel ?? null); setEvents(data.events ?? []);
     }).finally(() => setLoading(false));
   }, [slug]);
-  if (loading) return <main className="channel-unavailable"><a href="/">ODIIN STREAMING</a><h1>Loading channel</h1></main>;
-  if (!channel) return <main className="channel-unavailable"><a href="/">ODIIN STREAMING</a><h1>Channel unavailable</h1><p>This creator channel is not currently available.</p></main>;
+  if (loading) return <main className="channel-unavailable"><Link href="/">ODIIN STREAMING</Link><h1>Loading channel</h1></main>;
+  if (!channel) return <main className="channel-unavailable"><Link href="/">ODIIN STREAMING</Link><h1>Channel unavailable</h1><p>This creator channel is not currently available.</p></main>;
   return <main className="creator-channel-page">
-    <header><a href="/"><img src="/odiin-mark.svg" alt="" /><b>ODIIN</b> STREAMING</a><span>Creator channel</span></header>
+    <header><Link href="/"><img src="/odiin-mark.svg" alt="" /><b>ODIIN</b> STREAMING</Link><span>Creator channel</span></header>
     <section className="channel-hero"><p>ODIIN CREATOR</p><h1>{channel.channelName || channel.displayName}</h1><span>{channel.channelDescription || `Live broadcasts and replays from ${channel.displayName}.`}</span></section>
-    <section className="channel-catalog"><div><h2>Broadcasts</h2><small>{events.length} available</small></div><div className="channel-grid">{events.map((event) => <a href={`/watch/${encodeURIComponent(event.id)}`} key={event.id}><span className="channel-art">{event.posterUrl ? <img src={event.posterUrl} alt="" /> : <img src="/odiin-mark.svg" alt="" />}{event.status === "live" && <em>LIVE</em>}</span><small>{event.category}</small><b>{event.title}</b><time>{new Date(event.startsAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</time></a>)}</div>{!events.length && <p className="channel-empty">This creator has not published a broadcast yet.</p>}</section>
+    <section className="channel-catalog"><div><h2>Broadcasts</h2><small>{events.length} available</small></div><div className="channel-grid">{events.map((event) => <Link href={`/watch/${encodeURIComponent(event.id)}`} key={event.id}><span className="channel-art">{event.posterUrl ? <img src={event.posterUrl} alt="" /> : <img src="/odiin-mark.svg" alt="" />}{event.status === "live" && <em>LIVE</em>}</span><small>{event.category}</small><b>{event.title}</b><time>{new Date(event.startsAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</time></Link>)}</div>{!events.length && <p className="channel-empty">This creator has not published a broadcast yet.</p>}</section>
   </main>;
 }
