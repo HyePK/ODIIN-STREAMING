@@ -1,0 +1,11 @@
+{
+  "name": "ODIIN STREAMING",
+  "short_name": "ODIIN",
+  "description": "Live events and on-demand replays from ODIIN STREAMING.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030711",
+  "theme_color": "#071021",
+  "orientation": "any",
+  "icons": [{ "src": "/odiin-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

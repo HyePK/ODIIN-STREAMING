@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="ODIIN STREAMING">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#36d1ff"/><stop offset=".45" stop-color="#526dff"/><stop offset="1" stop-color="#d946ef"/></linearGradient></defs>
+  <rect width="128" height="128" rx="32" fill="#050a16"/>
+  <circle cx="64" cy="64" r="42" fill="none" stroke="url(#g)" stroke-width="12"/>
+  <path d="M52 43 87 64 52 85Z" fill="#fff"/>
+</svg>
