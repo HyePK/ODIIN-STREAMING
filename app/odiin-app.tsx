@@ -17,6 +17,7 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import { Switch } from "../components/ui/switch";
+import { uploadVideoInChunks } from "../lib/chunked-upload";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
@@ -80,10 +81,11 @@ function Brand() {
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase();
+  const label = normalized === "published" ? "Replay" : normalized === "upload_failed" ? "Upload needs retrying" : normalized === "uploading" ? "Uploading" : normalized;
   return (
     <Badge className={`status status-${normalized}`}>
       {normalized === "live" && <span className="pulse-dot" />}
-      {normalized === "published" ? "Replay" : normalized}
+      {label}
     </Badge>
   );
 }
@@ -373,6 +375,7 @@ function AdminView({ events, reload }: { events: EventItem[]; reload: () => Prom
   const [busy, setBusy] = useState(false);
   const [accounts, setAccounts] = useState<CreatorAccount[]>([]);
   const [managedAccount, setManagedAccount] = useState<CreatorAccount | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   async function loadAccounts() { const response = await fetch("/api/account?admin=1"); const data = await response.json() as { accounts?: CreatorAccount[] }; setAccounts(data.accounts ?? []); }
   useEffect(() => {
     const initialLoad = window.setTimeout(() => { void loadAccounts().catch(() => undefined); }, 0);
@@ -429,22 +432,21 @@ function AdminView({ events, reload }: { events: EventItem[]; reload: () => Prom
       const saved = await request({ event });
       const id = saved.event?.id;
       if (video && id) {
-        const upload = await fetch(`/api/media/${encodeURIComponent(id)}`, {
-          method: "PUT",
-          headers: { "Content-Type": video.type || "video/mp4", "x-file-name": video.name, ...(adminKey ? { "x-odiin-admin-key": adminKey } : {}) },
-          body: video,
+        setUploadProgress(0);
+        await uploadVideoInChunks(id, video, {
+          headers: adminKey ? { "x-odiin-admin-key": adminKey } : {},
+          onProgress: setUploadProgress,
         });
-        const result = await upload.json() as { error?: string };
-        if (!upload.ok) throw new Error(result.error || "Video upload failed.");
+        setUploadProgress(null);
       }
       await reload(); setEditing(null); setNotice(video ? "Broadcast saved and video published." : "Broadcast saved.");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to save broadcast."); }
+    } catch (error) { setUploadProgress(null); await reload().catch(() => undefined); setNotice(`${error instanceof Error ? error.message : "Unable to save broadcast."} The record remains in Upload needs retrying status.`); }
     finally { setBusy(false); }
   }
 
   async function toggleLive(event: EventItem) {
     const goingLive = event.status !== "live";
-    if (goingLive && !event.streamUrl && !event.providerBroadcastId) {
+    if (goingLive && !event.streamUrl && (!event.providerBroadcastId || event.providerBroadcastId.startsWith("r2-upload:"))) {
       setNotice("Connect a live stream or upload a video before going live."); return;
     }
     await send({ event: { ...event, status: goingLive ? "live" : "published" } }, goingLive ? `${event.title} is now live.` : `${event.title} is now available as a replay.`);
@@ -492,6 +494,7 @@ function AdminView({ events, reload }: { events: EventItem[]; reload: () => Prom
         </aside>
       </div>
       <section className="accounts-panel"><div className="panel-title"><div><p className="eyebrow"><UserRound size={15} /> Audience</p><h2>ODIIN accounts</h2></div><Badge className="account-count">{accounts.length} accounts</Badge></div>{accounts.length ? <div className="accounts-table">{accounts.map((account) => <div className="account-row" key={account.email}><span className="account-avatar">{account.displayName.slice(0, 1).toUpperCase()}</span><span><b>{account.displayName}</b><small>{account.email}</small></span><em>{account.creatorAccess && account.subscriptionStatus === "active" ? "Creator active" : `${account.savedCount} saved`}</em><time>{new Date(account.createdAt).toLocaleDateString()}</time><button onClick={() => setManagedAccount(account)}>Manage</button></div>)}</div> : <div className="accounts-empty">Viewer accounts will appear here after people register.</div>}</section>
+      {uploadProgress !== null && <div className="admin-upload-progress" role="status"><div className="upload-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadProgress}><span style={{ width: `${uploadProgress}%` }} /><b>{uploadProgress}% uploaded</b></div><small>Transferring in compatibility-safe 5 MB parts. Keep this page open.</small></div>}
       {notice && <div className="toast" role="status">{notice}<button onClick={() => setNotice("")}><X size={16} /></button></div>}
       {editing && <EventEditor item={editing} busy={busy} onClose={() => setEditing(null)} onSave={saveBroadcast} />}
       {managedAccount && <CreatorAccountEditor account={managedAccount} busy={busy} onClose={() => setManagedAccount(null)} onSave={saveCreatorAccount} onDeleteChannel={() => removeCreatorAccount(managedAccount, "deleteCreatorChannel")} onDeleteSubscriber={() => removeCreatorAccount(managedAccount, "deleteSubscriber")} />}
@@ -515,7 +518,7 @@ function EventEditor({ item, busy, onClose, onSave }: { item: EventItem; busy: b
       <label>Broadcast title<Input required value={value.title} onChange={(e) => setValue({ ...value, title: e.target.value })} /></label>
       <label>Description<Textarea value={value.description} onChange={(e) => setValue({ ...value, description: e.target.value })} /></label>
       <div className="form-grid"><label>Start time<Input required type="datetime-local" value={value.startsAt.slice(0, 16)} onChange={(e) => setValue({ ...value, startsAt: e.target.value })} /></label><label>Duration<Input type="number" min="1" value={value.durationMinutes} onChange={(e) => setValue({ ...value, durationMinutes: Number(e.target.value) })} /></label></div>
-      <div className="form-grid"><label>Category<Input value={value.category} onChange={(e) => setValue({ ...value, category: e.target.value })} /></label><label>Status<select value={value.status} onChange={(e) => setValue({ ...value, status: e.target.value })}><option value="scheduled">Scheduled</option><option value="live">Live</option><option value="published">Published replay</option><option value="draft">Draft</option></select></label></div>
+      <div className="form-grid"><label>Category<Input value={value.category} onChange={(e) => setValue({ ...value, category: e.target.value })} /></label><label>Status<select value={value.status} onChange={(e) => setValue({ ...value, status: e.target.value })}><option value="scheduled">Scheduled</option><option value="live">Live</option><option value="published">Published replay</option><option value="draft">Draft</option><option value="uploading">Uploading</option><option value="upload_failed">Upload needs retrying</option></select></label></div>
       <label>Direct playback URL<Input value={value.streamUrl} onChange={(e) => setValue({ ...value, streamUrl: e.target.value })} placeholder="https://…/stream.m3u8 or .mp4" /></label>
       <label>Hosted player URL<Input value={value.providerBroadcastId} onChange={(e) => setValue({ ...value, providerBroadcastId: e.target.value })} placeholder="Optional secure https embed URL" /></label>
       <label>Poster image URL<Input value={value.posterUrl} onChange={(e) => setValue({ ...value, posterUrl: e.target.value })} /></label>
