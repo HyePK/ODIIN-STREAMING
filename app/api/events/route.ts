@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     ]);
     const adminAuthorized = await hasAdminAccess(request.headers);
     const adminView = new URL(request.url).searchParams.get("admin") === "1" && adminAuthorized;
-    const visibleRows = adminView ? eventRows : eventRows.filter((row) => row.status !== "draft");
+    const visibleRows = adminView ? eventRows : eventRows.filter((row) => !["draft", "uploading", "upload_failed"].includes(row.status));
     const canSeePrivatePlayback = adminAuthorized;
     const safeEvents = visibleRows.map((row) => canSeePrivatePlayback ? row : {
       ...row,
@@ -57,10 +57,11 @@ export async function POST(request: Request) {
     if (payload.action === "delete") {
       if (!payload.id) return Response.json({ error: "Event id is required." }, { status: 400 });
       const [existing] = await db.select().from(events).where(eq(events.id, payload.id)).limit(1);
-      if (existing?.streamUrl === `/api/media/${payload.id}`) {
-        const bucket = (env as unknown as { BUCKET?: R2Bucket }).BUCKET;
-        if (bucket) await bucket.delete(`broadcasts/${payload.id}`);
+      const bucket = (env as unknown as { BUCKET?: R2Bucket }).BUCKET;
+      if (bucket && existing?.providerBroadcastId.startsWith("r2-upload:")) {
+        await bucket.resumeMultipartUpload(`broadcasts/${payload.id}`, existing.providerBroadcastId.slice("r2-upload:".length)).abort().catch(() => undefined);
       }
+      if (bucket && existing?.streamUrl === `/api/media/${payload.id}`) await bucket.delete(`broadcasts/${payload.id}`);
       await db.delete(events).where(eq(events.id, payload.id));
       await db.insert(settings).values({ key: "catalogInitialized", value: "1", updatedAt: new Date().toISOString() })
         .onConflictDoUpdate({ target: settings.key, set: { value: "1", updatedAt: new Date().toISOString() } });
